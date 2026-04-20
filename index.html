@@ -2,7 +2,7 @@
 <html lang="zh">
 <head>
 <meta charset="UTF-8">
-<title>实时收入计时器</title>
+<title>实时收入计时器（精确API版）</title>
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 
 <style>
@@ -14,7 +14,6 @@ body{
   color:#1d1d1f;
 }
 
-/* 主界面 */
 .main{
   text-align:center;
   padding:60px 20px;
@@ -23,19 +22,25 @@ body{
 .time{
   font-size:14px;
   color:rgba(0,0,0,0.5);
-  margin-bottom:10px;
 }
 
 .big{
   font-size:56px;
   font-weight:600;
-  letter-spacing:-1px;
   margin:20px 0;
 }
 
 .status{
   font-size:14px;
   color:rgba(0,0,0,0.5);
+}
+
+/* 🍏 信息区 */
+.info{
+  font-size:12px;
+  color:rgba(60,60,67,0.55);
+  margin-top:12px;
+  line-height:1.8;
 }
 
 /* 齿轮 */
@@ -62,29 +67,20 @@ body{
   transition:0.3s;
 }
 
-#panel.show{
-  right:0;
-}
+#panel.show{ right:0; }
 
-/* 🍏 输入框（含灰色提示） */
 input{
   width:100%;
   padding:12px;
   margin:8px 0;
-
   border:1px solid #e5e5e5;
   border-radius:10px;
-
-  font-size:14px;
-  background:#fff;
 }
 
-/* placeholder 苹果风灰色 */
 input::placeholder{
   color:rgba(60,60,67,0.35);
 }
 
-/* 按钮 */
 button{
   width:100%;
   padding:12px;
@@ -93,27 +89,15 @@ button{
   border-radius:10px;
   background:#1d1d1f;
   color:#fff;
-  font-size:14px;
 }
 
-/* 🍏 署名 */
 .credit{
   position:fixed;
   bottom:18px;
   left:50%;
   transform:translateX(-50%);
-
   font-size:11px;
-  font-weight:400;
   color:rgba(60,60,67,0.25);
-
-  letter-spacing:0.2px;
-
-  font-family:-apple-system, BlinkMacSystemFont,
-              "SF Pro Display","Helvetica Neue",Arial;
-
-  user-select:none;
-  pointer-events:none;
 }
 </style>
 </head>
@@ -122,37 +106,32 @@ button{
 
 <div id="gear">⚙️</div>
 
-<!-- 主界面 -->
 <div class="main">
   <div class="time">当前时间</div>
   <div id="now"></div>
 
   <div class="big">¥ <span id="money">0</span></div>
 
+  <div class="info" id="info"></div>
+
   <div class="status" id="status"></div>
 </div>
 
-<!-- 设置面板 -->
 <div id="panel">
   <h3>设置</h3>
 
-  <!-- 🍏 已优化 placeholder -->
-  <input id="salary" placeholder="请输入你的月薪（例如 15000）">
-  <input id="factor" placeholder="隐私系数（如 0.5 / 1 / 2，默认1）" value="1">
-  <input id="start" type="time">
-  <input id="end" type="time">
+  <input id="salary" placeholder="请输入月薪">
+  <input id="factor" placeholder="隐私系数（默认1）" value="1">
+  <input id="start" type="time" value="09:00">
+  <input id="end" type="time" value="18:00">
 
   <button onclick="save()">保存并返回</button>
 </div>
 
-<!-- 署名 -->
 <div class="credit">Designed by Ethan Cai</div>
 
 <script>
 
-/* =====================
-   面板控制
-===================== */
 const panel = document.getElementById('panel');
 
 document.getElementById('gear').onclick = () => {
@@ -164,14 +143,108 @@ function save(){
   localStorage.setItem('factor', factor.value);
   localStorage.setItem('start', start.value);
   localStorage.setItem('end', end.value);
-
   panel.classList.remove('show');
 }
 
-/* =====================
-   计时核心
-===================== */
+/* =========================
+   API缓存
+========================= */
+const cache = {};
+
+async function isWorkday(dateStr){
+
+  if(cache[dateStr] !== undefined){
+    return cache[dateStr];
+  }
+
+  const res = await fetch(`https://timor.tech/api/holiday/info/${dateStr}`);
+  const data = await res.json();
+
+  const work = !data.holiday?.rest;
+
+  cache[dateStr] = work;
+
+  return work;
+}
+
+/* =========================
+   本月工作日
+========================= */
+async function getMonthWorkdays(){
+
+  const now = new Date();
+  const y = now.getFullYear();
+  const m = now.getMonth() + 1;
+
+  const pad = n => n.toString().padStart(2,'0');
+  const days = new Date(y, m, 0).getDate();
+
+  let count = 0;
+
+  for(let d=1; d<=days; d++){
+    const dateStr = `${y}-${pad(m)}-${pad(d)}`;
+    if(await isWorkday(dateStr)) count++;
+  }
+
+  return count;
+}
+
+/* =========================
+   最近周末 & 假期（含名字）
+========================= */
+async function getFutureInfo(){
+
+  const now = new Date();
+  const pad = n => n.toString().padStart(2,'0');
+
+  let weekend = null;
+
+  let holiday = null;
+  let holidayName = "";
+
+  for(let i=1;i<=30;i++){
+
+    const d = new Date();
+    d.setDate(now.getDate()+i);
+
+    const dateStr = `${d.getFullYear()}-${pad(d.getMonth()+1)}-${pad(d.getDate())}`;
+
+    const res = await fetch(`https://timor.tech/api/holiday/info/${dateStr}`);
+    const data = await res.json();
+
+    if(!weekend && (d.getDay() === 0 || d.getDay() === 6)){
+      weekend = i;
+    }
+
+    if(!holiday && data.holiday?.holiday){
+      holiday = i;
+      holidayName = data.holiday.name || "法定节假日";
+    }
+
+    if(weekend && holiday) break;
+  }
+
+  return { weekend, holiday, holidayName };
+}
+
+/* =========================
+   初始化
+========================= */
+let monthWorkdays = 0;
+let futureInfo = { weekend:0, holiday:0, holidayName:"" };
+
+async function init(){
+  monthWorkdays = await getMonthWorkdays();
+  futureInfo = await getFutureInfo();
+}
+
+init();
+
+/* =========================
+   主循环
+========================= */
 function tick(){
+
   const now = new Date();
   document.getElementById('now').innerText =
     now.toLocaleTimeString();
@@ -184,24 +257,20 @@ function tick(){
   const [sh,sm] = start.split(':').map(Number);
   const [eh,em] = end.split(':').map(Number);
 
-  const s = new Date();
-  s.setHours(sh,sm,0);
+  const s = new Date(); s.setHours(sh,sm,0);
+  const e = new Date(); e.setHours(eh,em,0);
 
-  const e = new Date();
-  e.setHours(eh,em,0);
-
-  const real = salary * factor;
-  const workSec = (e - s) / 1000;
-  const perSec = real / (22 * workSec);
+  const perSec = monthWorkdays
+    ? salary * factor / monthWorkdays / ((e - s)/1000)
+    : 0;
 
   let money = 0;
   let status = "";
 
   if(now < s){
-    money = 0;
     status = "未上班";
   }else if(now > e){
-    money = perSec * workSec;
+    money = perSec * ((e - s)/1000);
     status = "已下班";
   }else{
     money = perSec * ((now - s)/1000);
@@ -212,19 +281,20 @@ function tick(){
     money.toFixed(2);
 
   document.getElementById('status').innerText = status;
+
+  /* 🍏 信息展示 */
+  document.getElementById('info').innerHTML = `
+    本月工作日：${monthWorkdays} 天<br>
+    距离最近周末：${futureInfo.weekend || "计算中"} 天<br>
+    距离最近假期：${futureInfo.holiday || "计算中"} 天<br>
+    ${futureInfo.holiday
+      ? `最近假期：${futureInfo.holidayName}`
+      : ""
+    }
+  `;
 }
 
 setInterval(tick,1000);
-
-/* =====================
-   初始化
-===================== */
-window.onload = () => {
-  ['salary','factor','start','end'].forEach(k=>{
-    const el = document.getElementById(k);
-    if(localStorage.getItem(k)) el.value = localStorage.getItem(k);
-  });
-};
 
 </script>
 
