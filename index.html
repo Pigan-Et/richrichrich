@@ -8,7 +8,7 @@
 <style>
 body{
   margin:0;
-  font-family:-apple-system,BlinkMacSystemFont,"SF Pro Display";
+  font-family:-apple-system,BlinkMacSystemFont,"SF Pro Display","PingFang SC",sans-serif;
   background:#f5f6f8;
   color:#1d1d1f;
 }
@@ -27,6 +27,7 @@ body{
   font-size:56px;
   font-weight:600;
   margin:20px 0;
+  font-variant-numeric: tabular-nums; /* 防止数字跳动 */
 }
 
 .info{
@@ -61,9 +62,13 @@ body{
   padding:24px;
   box-shadow:-10px 0 30px rgba(0,0,0,0.08);
   transition:0.3s;
+  box-sizing: border-box;
+  z-index: 100;
 }
 
 #panel.show{ right:0; }
+
+h3{ margin-top: 0; }
 
 input{
   width:100%;
@@ -71,6 +76,7 @@ input{
   margin:8px 0;
   border:1px solid #e5e5e5;
   border-radius:10px;
+  box-sizing: border-box;
 }
 
 input::placeholder{
@@ -85,6 +91,7 @@ button{
   border-radius:10px;
   background:#1d1d1f;
   color:#fff;
+  cursor:pointer;
 }
 
 .credit{
@@ -104,143 +111,172 @@ button{
 
 <div class="main">
   <div class="time">当前时间</div>
-  <div id="now"></div>
+  <div id="now">--:--:--</div>
 
-  <div class="big">¥ <span id="money">0</span></div>
+  <div class="big">¥ <span id="money">0.00</span></div>
 
-  <div class="info" id="info"></div>
+  <div class="info" id="info">正在计算...</div>
 
-  <div class="status" id="status"></div>
+  <div class="status" id="status">载入中</div>
 </div>
 
 <div id="panel">
   <h3>设置</h3>
-
-  <input id="salary" placeholder="请输入月薪">
+  <input id="salary" placeholder="请输入月薪" type="number">
   <input id="factor" placeholder="隐私系数（默认1）" value="1">
   <input id="start" type="time" value="09:00">
   <input id="end" type="time" value="18:00">
-
   <button onclick="save()">保存并返回</button>
 </div>
 
 <div class="credit">Designed by Ethan Cai</div>
 
 <script>
-
+// UI 控制
 document.getElementById('gear').onclick = ()=>{
   document.getElementById('panel').classList.add('show');
 };
 
 function save(){
-  localStorage.setItem('salary', salary.value);
-  localStorage.setItem('factor', factor.value);
-  localStorage.setItem('start', start.value);
-  localStorage.setItem('end', end.value);
+  localStorage.setItem('salary', document.getElementById('salary').value);
+  localStorage.setItem('factor', document.getElementById('factor').value);
+  localStorage.setItem('start', document.getElementById('start').value);
+  localStorage.setItem('end', document.getElementById('end').value);
   document.getElementById('panel').classList.remove('show');
+  updateMonthConfig(); // 保存后立即刷新配置
 }
 
 /* =========================
-   📌 内置CSV（由创建者维护）
+   📌 2026年 完整节假日及调休配置 (已根据 JSON 更新)
+   holiday: 休息放假
+   workday: 周末调休需上班
 ========================= */
-
 const holidayMap = {
-
-  "2026-01-01": {type:"holiday", name:"元旦"},
-  "2026-01-02": {type:"holiday", name:"元旦"},
-  "2026-01-03": {type:"holiday", name:"元旦"},
-  "2026-01-04": {type:"workday", name:"元旦后补班"},
-
-  "2026-02-15": {type:"holiday", name:"春节"},
-  "2026-02-16": {type:"holiday", name:"除夕"},
-  "2026-02-17": {type:"holiday", name:"初一"},
-  "2026-02-28": {type:"workday", name:"春节后补班"},
-
-  "2026-04-04": {type:"holiday", name:"清明节"},
-  "2026-04-05": {type:"holiday", name:"清明节"},
-  "2026-04-06": {type:"holiday", name:"清明节"},
-
-  "2026-10-10": {type:"workday", name:"国庆节后补班"}
+  // 元旦
+  "2026-01-01": "holiday", "2026-01-02": "holiday", "2026-01-03": "holiday",
+  "2026-01-04": "workday",
+  // 春节
+  "2026-02-14": "workday",
+  "2026-02-15": "holiday", "2026-02-16": "holiday", "2026-02-17": "holiday",
+  "2026-02-18": "holiday", "2026-02-19": "holiday", "2026-02-20": "holiday",
+  "2026-02-21": "holiday", "2026-02-22": "holiday", "2026-02-23": "holiday",
+  "2026-02-28": "workday",
+  // 清明节
+  "2026-04-04": "holiday", "2026-04-05": "holiday", "2026-04-06": "holiday",
+  // 劳动节
+  "2026-05-01": "holiday", "2026-05-02": "holiday", "2026-05-03": "holiday",
+  "2026-05-04": "holiday", "2026-05-05": "holiday",
+  "2026-05-09": "workday",
+  // 端午节
+  "2026-06-19": "holiday", "2026-06-20": "holiday", "2026-06-21": "holiday",
+  // 中秋节
+  "2026-09-20": "workday",
+  "2026-09-25": "holiday", "2026-09-26": "holiday", "2026-09-27": "holiday",
+  // 国庆节
+  "2026-10-01": "holiday", "2026-10-02": "holiday", "2026-10-03": "holiday",
+  "2026-10-04": "holiday", "2026-10-05": "holiday", "2026-10-06": "holiday",
+  "2026-10-07": "holiday",
+  "2026-10-10": "workday"
 };
 
 /* =========================
-   判断工作日
+   工作日判断逻辑
 ========================= */
-function isWorkday(date){
+let cachedWorkdays = 0;
+let lastUpdateMonth = -1;
 
-  const record = holidayMap[date];
+function isWorkday(dateStr){
+  const record = holidayMap[dateStr];
+  // 命中节假日直接放假
+  if(record === "holiday") return false;
+  // 命中调休补班直接上班
+  if(record === "workday") return true;
 
-  if(record){
-    if(record.type === "holiday") return false;
-    if(record.type === "workday") return true;
-  }
-
-  const d = new Date(date);
+  // 既不是节假日也不是调休补班，判断是否为周末
+  const d = new Date(dateStr);
   const day = d.getDay();
-
-  return !(day === 0 || day === 6);
+  return !(day === 0 || day === 6); // 周六(6)和周日(0)休息
 }
 
-/* =========================
-   tick
-========================= */
-function tick(){
-
+// 核心逻辑：计算当前月份工作日总天数
+function updateMonthConfig() {
   const now = new Date();
-  document.getElementById('now').innerText =
-    now.toLocaleTimeString();
-
-  const salary = +localStorage.getItem('salary') || 0;
-  const factor = +localStorage.getItem('factor') || 1;
-
-  const start = localStorage.getItem('start') || "09:00";
-  const end = localStorage.getItem('end') || "18:00";
-
-  const [sh,sm] = start.split(':').map(Number);
-  const [eh,em] = end.split(':').map(Number);
-
-  const s = new Date(); s.setHours(sh,sm,0);
-  const e = new Date(); e.setHours(eh,em,0);
-
   const y = now.getFullYear();
-  const m = now.getMonth()+1;
-
+  const m = now.getMonth() + 1;
+  
+  // 动态获取当前月的实际总天数
+  const totalDays = new Date(y, m, 0).getDate();
+  
   let workdays = 0;
+  for(let d=1; d<=totalDays; d++){
+    // 构造类似 2026-01-05 的格式
+    const dateStr = `${y}-${String(m).padStart(2,'0')}-${String(d).padStart(2,'0')}`;
+    if(isWorkday(dateStr)) workdays++;
+  }
+  
+  cachedWorkdays = workdays;
+  lastUpdateMonth = m;
+  return { y, m, workdays };
+}
 
-  for(let d=1; d<=31; d++){
-    const date =
-      `${y}-${String(m).padStart(2,'0')}-${String(d).padStart(2,'0')}`;
+function tick(){
+  const now = new Date();
+  document.getElementById('now').innerText = now.toLocaleTimeString('zh-CN', {hour12: false});
 
-    if(isWorkday(date)) workdays++;
+  const currentMonth = now.getMonth() + 1;
+  // 发现跨月，重新计算该月工作日
+  if (currentMonth !== lastUpdateMonth) {
+    updateMonthConfig();
   }
 
-  const perSec =
-    salary * factor / workdays / ((e - s)/1000);
+  // 读取配置参数
+  const salary = parseFloat(localStorage.getItem('salary')) || 0;
+  const factor = parseFloat(localStorage.getItem('factor')) || 1;
+  const startTimeStr = localStorage.getItem('start') || "09:00";
+  const endTimeStr = localStorage.getItem('end') || "18:00";
+
+  const [sh, sm] = startTimeStr.split(':').map(Number);
+  const [eh, em] = endTimeStr.split(':').map(Number);
+
+  const s = new Date(now); s.setHours(sh, sm, 0, 0);
+  const e = new Date(now); e.setHours(eh, em, 0, 0);
+
+  // 计算每秒薪水
+  const totalWorkSeconds = (e - s) / 1000;
+  const perSec = (salary * factor) / cachedWorkdays / totalWorkSeconds;
 
   let money = 0;
   let status = "";
 
-  if(now < s){
-    status = "未上班";
-  }else if(now > e){
-    money = perSec * ((e - s)/1000);
+  if (now < s) {
+    status = "未开始工作";
+    money = 0;
+  } else if (now > e) {
     status = "已下班";
-  }else{
-    money = perSec * ((now - s)/1000);
-    status = "工作中";
+    money = perSec * totalWorkSeconds; // 下班后显示当日满额收入
+  } else {
+    status = "赚钱中...";
+    money = perSec * ((now - s) / 1000); // 实时计算当下收入
   }
 
-  document.getElementById('money').innerText =
-    money.toFixed(2);
-
+  // 刷新UI渲染
+  document.getElementById('money').innerText = money.toFixed(4); // 保留4位小数让跳动更有感知
   document.getElementById('status').innerText = status;
-
-  document.getElementById('info').innerHTML =
-    `本月工作日：${workdays} 天`;
+  document.getElementById('info').innerHTML = `本月工作日：${cachedWorkdays} 天`;
+  
+  // 自动回填面板输入框（第一次加载时）
+  if(!document.getElementById('salary').value && salary) {
+      document.getElementById('salary').value = salary;
+      document.getElementById('factor').value = factor;
+      document.getElementById('start').value = startTimeStr;
+      document.getElementById('end').value = endTimeStr;
+  }
 }
 
-setInterval(tick,1000);
-
+// 启动程序
+updateMonthConfig();
+setInterval(tick, 1000);
+tick(); // 消除启动时的延迟白屏
 </script>
 
 </body>
