@@ -2,7 +2,8 @@
 <html lang="zh">
 <head>
 <meta charset="UTF-8">
-<title>实时收入计时器（CSV版）</title>
+<title>实时收入计时器</title>
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
 
 <style>
 body{
@@ -17,6 +18,11 @@ body{
   padding:60px 20px;
 }
 
+.time{
+  font-size:14px;
+  color:rgba(0,0,0,0.5);
+}
+
 .big{
   font-size:56px;
   font-weight:600;
@@ -26,17 +32,22 @@ body{
 .info{
   font-size:12px;
   color:rgba(60,60,67,0.55);
-  margin-top:10px;
+  margin-top:12px;
   line-height:1.8;
+}
+
+.status{
+  font-size:14px;
+  color:rgba(0,0,0,0.5);
 }
 
 #gear{
   position:fixed;
-  right:16px;
   top:16px;
+  right:16px;
   font-size:20px;
-  opacity:0.6;
   cursor:pointer;
+  opacity:0.6;
 }
 
 #panel{
@@ -47,7 +58,8 @@ body{
   max-width:420px;
   height:100%;
   background:#fff;
-  padding:20px;
+  padding:24px;
+  box-shadow:-10px 0 30px rgba(0,0,0,0.08);
   transition:0.3s;
 }
 
@@ -55,19 +67,34 @@ body{
 
 input{
   width:100%;
-  padding:10px;
+  padding:12px;
   margin:8px 0;
+  border:1px solid #e5e5e5;
+  border-radius:10px;
+}
+
+input::placeholder{
+  color:rgba(60,60,67,0.35);
 }
 
 button{
   width:100%;
   padding:12px;
-  background:#000;
-  color:#fff;
-  border:none;
+  margin-top:12px;
+  border:0;
   border-radius:10px;
+  background:#1d1d1f;
+  color:#fff;
 }
 
+.credit{
+  position:fixed;
+  bottom:18px;
+  left:50%;
+  transform:translateX(-50%);
+  font-size:11px;
+  color:rgba(60,60,67,0.25);
+}
 </style>
 </head>
 
@@ -76,55 +103,68 @@ button{
 <div id="gear">⚙️</div>
 
 <div class="main">
+  <div class="time">当前时间</div>
   <div id="now"></div>
+
   <div class="big">¥ <span id="money">0</span></div>
 
   <div class="info" id="info"></div>
+
+  <div class="status" id="status"></div>
 </div>
 
 <div id="panel">
-  <h3>上传节假日CSV</h3>
-  <input type="file" id="csvFile">
-
   <h3>设置</h3>
-  <input id="salary" placeholder="月薪">
-  <input id="factor" placeholder="系数" value="1">
+
+  <input id="salary" placeholder="请输入月薪">
+  <input id="factor" placeholder="隐私系数（默认1）" value="1">
   <input id="start" type="time" value="09:00">
   <input id="end" type="time" value="18:00">
 
-  <button onclick="save()">保存</button>
+  <button onclick="save()">保存并返回</button>
 </div>
 
-<script>
+<div class="credit">Designed by Ethan Cai</div>
 
-let holidayMap = {}; // date -> {type,name}
+<script>
 
 document.getElementById('gear').onclick = ()=>{
   document.getElementById('panel').classList.add('show');
 };
 
+function save(){
+  localStorage.setItem('salary', salary.value);
+  localStorage.setItem('factor', factor.value);
+  localStorage.setItem('start', start.value);
+  localStorage.setItem('end', end.value);
+  document.getElementById('panel').classList.remove('show');
+}
+
 /* =========================
-   CSV解析
+   📌 内置CSV（由创建者维护）
 ========================= */
-document.getElementById('csvFile').addEventListener('change', async function(e){
 
-  const text = await e.target.files[0].text();
+const holidayMap = {
 
-  const lines = text.split('\n').slice(1);
+  "2026-01-01": {type:"holiday", name:"元旦"},
+  "2026-01-02": {type:"holiday", name:"元旦"},
+  "2026-01-03": {type:"holiday", name:"元旦"},
+  "2026-01-04": {type:"workday", name:"元旦后补班"},
 
-  lines.forEach(l=>{
-    if(!l.trim()) return;
+  "2026-02-15": {type:"holiday", name:"春节"},
+  "2026-02-16": {type:"holiday", name:"除夕"},
+  "2026-02-17": {type:"holiday", name:"初一"},
+  "2026-02-28": {type:"workday", name:"春节后补班"},
 
-    const [date,type,name,wage] = l.split(',');
+  "2026-04-04": {type:"holiday", name:"清明节"},
+  "2026-04-05": {type:"holiday", name:"清明节"},
+  "2026-04-06": {type:"holiday", name:"清明节"},
 
-    holidayMap[date] = {type,name,wage};
-  });
-
-  alert("CSV加载完成");
-});
+  "2026-10-10": {type:"workday", name:"国庆节后补班"}
+};
 
 /* =========================
-   判断是否工作日
+   判断工作日
 ========================= */
 function isWorkday(date){
 
@@ -162,52 +202,44 @@ function tick(){
   const s = new Date(); s.setHours(sh,sm,0);
   const e = new Date(); e.setHours(eh,em,0);
 
-  /* =========================
-     计算本月工作日（CSV版）
-  ========================= */
-  const nowMonth = now.getMonth()+1;
-  const nowYear = now.getFullYear();
+  const y = now.getFullYear();
+  const m = now.getMonth()+1;
 
   let workdays = 0;
 
   for(let d=1; d<=31; d++){
-
-    const date = `${nowYear}-${String(nowMonth).padStart(2,'0')}-${String(d).padStart(2,'0')}`;
+    const date =
+      `${y}-${String(m).padStart(2,'0')}-${String(d).padStart(2,'0')}`;
 
     if(isWorkday(date)) workdays++;
   }
 
-  const perSec = salary * factor / workdays / ((e - s)/1000);
+  const perSec =
+    salary * factor / workdays / ((e - s)/1000);
 
   let money = 0;
+  let status = "";
 
   if(now < s){
-    money = 0;
+    status = "未上班";
   }else if(now > e){
     money = perSec * ((e - s)/1000);
+    status = "已下班";
   }else{
     money = perSec * ((now - s)/1000);
+    status = "工作中";
   }
 
   document.getElementById('money').innerText =
     money.toFixed(2);
 
+  document.getElementById('status').innerText = status;
+
   document.getElementById('info').innerHTML =
-    `本月工作日：${workdays} 天（CSV计算）`;
+    `本月工作日：${workdays} 天`;
 }
 
 setInterval(tick,1000);
-
-/* =========================
-   保存设置
-========================= */
-function save(){
-  localStorage.setItem('salary', salary.value);
-  localStorage.setItem('factor', factor.value);
-  localStorage.setItem('start', start.value);
-  localStorage.setItem('end', end.value);
-  document.getElementById('panel').classList.remove('show');
-}
 
 </script>
 
